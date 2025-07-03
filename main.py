@@ -1,5 +1,9 @@
-import telebot from telebot import types import json import os import time import threading
-
+import telebot
+from telebot import types
+import json
+import os
+import time
+import threading
 TOKEN = "7869769364:AAGWDK4orRgxQDcjfEHScbfExgIt_Ti8ARs" ADMIN_ID = 6964741705 bot = telebot.TeleBot(TOKEN)
 
 USERS_FILE = "users.json" CONFIG_FILE = "config.json" SESSIONS = {}
