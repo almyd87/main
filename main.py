@@ -1,53 +1,92 @@
 import telebot
 from telebot import types
-import json
-import os
-import time
-import threading
+import sqlite3
 
-# ✅ بيانات البوت والمطور
 TOKEN = "7869769364:AAGWDK4orRgxQDcjfEHScbfExgIt_Ti8ARs"
 ADMIN_ID = 6964741705
+WALLET_ID = "1125130202"
 
-# ✅ إنشاء البوت
 bot = telebot.TeleBot(TOKEN)
 
-# ✅ عند بدء المحادثة
+# إنشاء قاعدة البيانات
+conn = sqlite3.connect('users.db', check_same_thread=False)
+cursor = conn.cursor()
+cursor.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, balance INTEGER DEFAULT 0, referred_by INTEGER)")
+conn.commit()
+
+# 🔘 بدء البوت
 @bot.message_handler(commands=['start'])
-def send_welcome(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("📊 التحليلات", "📚 الدروس", "💰 الاشتراك", "👤 حسابي")
-    bot.send_message(message.chat.id, "مرحبًا بك في بوت التداول 📈\nاختر من القائمة:", reply_markup=markup)
+def start(msg):
+    user_id = msg.from_user.id
+    username = msg.from_user.username or "بدون اسم"
+    args = msg.text.split()
 
-# ✅ مثال لزر التحليلات
-@bot.message_handler(func=lambda message: message.text == "📊 التحليلات")
-def analysis(message):
-    bot.send_message(message.chat.id, "📉 لا توجد تحليلات حاليًا، سيتم إضافتها لاحقًا.")
+    # تحقق إذا كان مستخدم جديد
+    cursor.execute("SELECT * FROM users WHERE id=?", (user_id,))
+    if not cursor.fetchone():
+        referred_by = int(args[1]) if len(args) > 1 and args[1].isdigit() else None
+        cursor.execute("INSERT INTO users (id, username, referred_by) VALUES (?, ?, ?)", (user_id, username, referred_by))
 
-# ✅ زر الدروس
-@bot.message_handler(func=lambda message: message.text == "📚 الدروس")
-def lessons(message):
-    bot.send_message(message.chat.id, "📘 سيتم إرسال جميع دروس التداول بعد الاشتراك.")
+        if referred_by:
+            cursor.execute("UPDATE users SET balance = balance + 1 WHERE id=?", (referred_by,))
+            bot.send_message(referred_by, f"🎉 تمت إضافة 1¢ إلى رصيدك لإحالتك صديق جديد!")
 
-# ✅ الاشتراك
-@bot.message_handler(func=lambda message: message.text == "💰 الاشتراك")
-def subscribe(message):
-    wallet_address = "0x3a5db3aec7c262017af9423219eb64b5eb6643d7"
-    bot.send_message(
-        message.chat.id,
-        f"💵 الاشتراك الشهري: 3 USDT\n🎯 المحفظة: `{wallet_address}`\n\nأرسل صورة الدفع لتفعيل اشتراكك ✅",
-        parse_mode="Markdown"
-    )
+        conn.commit()
 
-# ✅ أي رسالة غير معروفة
-@bot.message_handler(func=lambda message: True)
-def fallback(message):
-    bot.send_message(message.chat.id, "❓ لم أفهم طلبك. استخدم الأزرار في الأسفل.")
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("📤 شارك رابط الدعوة", callback_data="share"))
+    markup.add(types.InlineKeyboardButton("💰 شراء الاستراتيجيات", callback_data="buy"))
+    markup.add(types.InlineKeyboardButton("💳 المحفظة", callback_data="wallet"))
+    bot.send_message(user_id, "👋 مرحبًا بك في بوت التداول الاحترافي.\nاختر أحد الخيارات 👇", reply_markup=markup)
+
+# 🎯 مشاركة رابط الدعوة
+@bot.callback_query_handler(func=lambda call: call.data == "share")
+def share(call):
+    user_id = call.from_user.id
+    ref_link = f"https://t.me/pocketoptiondars_bot?start={user_id}"
+    bot.send_message(user_id, f"🔗 رابط الدعوة الخاص بك:\n{ref_link}\n\n👥 كل من ينضم عبرك تحصل على 1¢ روبل!")
+
+# 💰 شراء الاستراتيجيات
+@bot.callback_query_handler(func=lambda call: call.data == "buy")
+def buy_strategy(call):
+    user_id = call.from_user.id
+    cursor.execute("SELECT balance FROM users WHERE id=?", (user_id,))
+    result = cursor.fetchone()
+    if result and result[0] >= 5:
+        cursor.execute("UPDATE users SET balance = balance - 5 WHERE id=?", (user_id,))
+        conn.commit()
+        bot.send_message(user_id, "📚 تم إرسال الاستراتيجيات بنجاح! ✅\n\n👇 إليك الدروس:")
+        send_lessons(user_id)
+    else:
+        bot.send_message(user_id, "❌ تحتاج إلى 5¢ على الأقل لشراء الاستراتيجيات.\n📤 قم بدعوة أصدقائك لزيادة الرصيد.")
+
+# 💳 عرض المحفظة
+@bot.callback_query_handler(func=lambda call: call.data == "wallet")
+def wallet(call):
+    bot.send_message(call.from_user.id, f"💼 عنوان محفظة الدفع:\n`{WALLET_ID}`\n\n📋 اضغط مطولًا لنسخ العنوان.", parse_mode="Markdown")
+
+# 📚 إرسال الدروس التعليمية (عند الشراء)
+def send_lessons(user_id):
+    lessons = [
+        "🟢 الدرس 1: ما هو التداول في Pocket Option؟\n\n📘 شرح كامل: التداول في المنصة يعتمد على التوقع إذا كان السعر سيرتفع أو ينخفض خلال فترة زمنية قصيرة.",
+        "🟢 الدرس 2: الفرق بين الشراء والبيع\n\n🔼 شراء = تتوقع صعود السعر\n🔽 بيع = تتوقع هبوط السعر",
+        "🟢 الدرس 3: إدارة رأس المال\n\n💡 لا تخاطر بأكثر من 5% من رصيدك في أي صفقة.",
+        # أضف باقي الدروس حسب الحاجة...
+    ]
+    for lesson in lessons:
+        bot.send_message(user_id, lesson)
+
+# 💡 شرح أي زر يتم ضغطه
+@bot.callback_query_handler(func=lambda call: True)
+def explain_buttons(call):
+    explanations = {
+        "share": "📤 شارك هذا الرابط مع أصدقائك لتحصل على 1¢ عن كل إحالة ناجحة.",
+        "buy": "💰 قم بشراء استراتيجيات تداول متقدمة بعد جمع 5¢.",
+        "wallet": "💳 هذا هو عنوان محفظتك لتحويل رسوم الاشتراك أو الدفع."
+    }
+    if call.data in explanations:
+        bot.send_message(call.from_user.id, f"ℹ️ توضيح:\n{explanations[call.data]}")
 
 # ✅ تشغيل البوت
-def run():
-    print("🤖 Bot is running...")
-    bot.infinity_polling()
-
-if __name__ == '__main__':
-    run()
+print("✅ Bot is running...")
+bot.infinity_polling()
