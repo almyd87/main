@@ -37,9 +37,8 @@ def get_main_menu(show_dev=False):
 
 @bot.message_handler(commands=["start"])
 def start(message):
-    bot.send_message(message.chat.id, "👋 مرحباً بك في بوت التداول".
-اختر أحد الخيارات التالية:", reply_markup=get_main_menu())
-
+    bot.send_message(message.chat.id, "👋 مرحباً بك في بوت التداو" 
+   bot.send_message(message.chat.id, "📍 اختر أحد الخيارات التالية:", reply_markup=get_main_menu())
 @bot.message_handler(func=lambda m: m.text == "🆕 إنشاء حساب")
 def register_step1(message):
     bot.send_message(message.chat.id, "📛 أرسل اسمك الكامل:")
