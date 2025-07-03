@@ -64,7 +64,7 @@ def register_finish(message, name, email):
     sessions[str(message.from_user.id)] = True
     save_data(SESSIONS_FILE, sessions)
 
-    bot.send_message(message.chat.id, "✅ تم إنشاء الحساب بنجاح.
+    bot.send_message(message.chat.id, "✅ تم إنشاء الحساب بنجاح")
 ▶️ اضغط هنا للمتابعة.", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add("▶️ اضغط هنا للمتابعة"))
 
 @bot.message_handler(func=lambda m: m.text == "🔐 تسجيل الدخول")
