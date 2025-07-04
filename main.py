@@ -78,8 +78,10 @@ def save_new_user(message, name, email):
         "accepted": False
     }
     save_users(users)
+    SESSIONS[chat_id] = True  # ✅ تفعيل الجلسة مباشرة بعد التسجيل
     bot.send_message(message.chat.id, "✅ تم إنشاء الحساب.")
     show_subscription_prompt(message)
+    
 
 @bot.message_handler(func=lambda m: m.text == "🔐 تسجيل الدخول")
 def login(message):
