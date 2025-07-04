@@ -1,6 +1,21 @@
-{
-  "wallet": "1125130202",
-  "price": 3,
-  "welcome_message": "\u0645\u0631\u062d\u0628\u0627\u064b \u0628\u0643 \u0641\u064a \u0628\u0648\u062a \u062a\u0648\u0635\u064a\u0627\u062a \u0627\u0644\u062a\u062f\u0627\u0648\u0644!",
-  "currency": "USDT"
-}
+def load_config():
+    default_config = {
+        "welcome_message": "👋 مرحبًا بك في بوت التوصيات.",
+        "subscription_message": "💳 للاشتراك، أرسل إثبات الدفع إلى المحفظة التالية.",
+        "subscription_price": "3",
+        "wallet_address": "1125130202"
+    }
+    if not os.path.exists(CONFIG_FILE):
+        save_config(default_config)
+        return default_config
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            data = json.load(f)
+        # تأكد من وجود جميع المفاتيح
+        for key in default_config:
+            if key not in data:
+                data[key] = default_config[key]
+        return data
+    except:
+        save_config(default_config)
+        return default_config
