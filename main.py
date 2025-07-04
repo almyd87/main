@@ -2,186 +2,269 @@ import telebot
 from telebot import types
 import json
 import os
-import requests
-import time
-import schedule
 import threading
+import time
 
-# --- إعدادات البوت ---
 TOKEN = "7869769364:AAGWDK4orRgxQDcjfEHScbfExgIt_Ti8ARs"
-PAIR = "EURUSD"
+ADMIN_ID = 6964741705
+ADMIN_PASSWORD = "admin"
+
 bot = telebot.TeleBot(TOKEN)
 
 USERS_FILE = "users.json"
-SESSIONS_FILE = "sessions.json"
-user_states = {}
+CONFIG_FILE = "config.json"
+SESSIONS = {}
 
-# --- تحميل/حفظ JSON ---
-def load_json(file):
-    if not os.path.exists(file):
-        return {}
-    with open(file, "r") as f:
+def load_config():
+    if not os.path.exists(CONFIG_FILE):
+        return {
+            "welcome_message": "👋 مرحبًا بك في بوت التوصيات.",
+            "subscription_message": "💳 للاشتراك، أرسل إثبات الدفع إلى المحفظة التالية.",
+            "subscription_price": "3",
+            "wallet_address": "1125130202"
+        }
+    with open(CONFIG_FILE, "r") as f:
         return json.load(f)
 
-def save_json(file, data):
-    with open(file, "w") as f:
-        json.dump(data, f, indent=2)
+def save_config(config):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=4)
 
-# --- المؤشرات الفنية ---
-def calc_ema(prices, period):
-    ema = prices[0]
-    k = 2 / (period + 1)
-    for price in prices[1:]:
-        ema = price * k + ema * (1 - k)
-    return ema
+config = load_config()
 
-def calc_rsi(prices, period=14):
-    gains, losses = [], []
-    for i in range(1, len(prices)):
-        diff = prices[i] - prices[i - 1]
-        gains.append(max(diff, 0))
-        losses.append(max(-diff, 0))
-    avg_gain = sum(gains[-period:]) / period
-    avg_loss = sum(losses[-period:]) / period
-    if avg_loss == 0: return 100
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        return {}
+    with open(USERS_FILE, "r") as f:
+        return json.load(f)
 
-def calc_bollinger(prices, period=20):
-    if len(prices) < period:
-        return None, None
-    sma = sum(prices[-period:]) / period
-    std = (sum((p - sma) ** 2 for p in prices[-period:]) / period) ** 0.5
-    return sma + 2 * std, sma - 2 * std
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=4)
 
-def fetch_data():
-    url = "https://scanner.tradingview.com/forex/scan"
-    payload = {
-        "symbols": {"tickers": [f"OANDA:{PAIR}"], "query": {"types": []}},
-        "columns": ["close"]
-    }
-    try:
-        prices = []
-        for _ in range(50):
-            r = requests.post(url, json=payload, timeout=5)
-            p = r.json()['data'][0]['d'][0]
-            prices.append(p)
-            time.sleep(0.05)
-        return prices
-    except Exception as e:
-        print("❌ خطأ:", e)
-        return []
+users = load_users()
 
-def generate_signal(prices):
-    ema20 = calc_ema(prices[-20:], 20)
-    ema50 = calc_ema(prices[-50:], 50)
-    rsi = calc_rsi(prices, 14)
-    upper, lower = calc_bollinger(prices)
-    current = prices[-1]
-
-    if ema20 > ema50 and current > ema20 and rsi < 70:
-        signal = "🟢 شراء (Call)"
-    elif ema20 < ema50 and current < ema20 and rsi > 30:
-        signal = "🔴 بيع (Put)"
-    else:
-        signal = "🟡 انتظار"
-
-    return f"""
-📊 توصية لحظية ({PAIR})
-السعر الحالي: {round(current, 5)}
-EMA20: {round(ema20, 5)} | EMA50: {round(ema50, 5)}
-RSI(14): {round(rsi, 2)}
-🔔 {signal}
-"""
-
-def send_to_all():
-    prices = fetch_data()
-    if len(prices) >= 50:
-        msg = generate_signal(prices)
-        sessions = load_json(SESSIONS_FILE)
-        for uid in sessions:
-            try:
-                bot.send_message(uid, msg)
-            except:
-                pass
-
-def run_schedule():
-    schedule.every(60).seconds.do(send_to_all)
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
-
-threading.Thread(target=run_schedule).start()
-
-# --- أوامر تيليجرام ---
-@bot.message_handler(commands=["start"])
-def start(message):
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("🆕 إنشاء حساب", "🔐 تسجيل الدخول")
-    bot.send_message(
-        message.chat.id,
-        "👋 مرحباً بك في *بوت توصيات التداول*.\n\n"
-        "يرجى اختيار أحد الخيارات:\n"
-        "🆕 إنشاء حساب\n🔐 تسجيل الدخول",
-        parse_mode="Markdown",
-        reply_markup=markup
-    )
+    if message.chat.id == ADMIN_ID:
+        markup.add("🔐 ALMYD8710", "📥 طلبات الاشتراك")
+    bot.send_message(message.chat.id, config["welcome_message"], reply_markup=markup)
 
-@bot.message_handler(func=lambda m: m.text in ["🆕 إنشاء حساب", "🔐 تسجيل الدخول"])
-def handle_menu(m):
-    if m.text == "🆕 إنشاء حساب":
-        user_states[m.chat.id] = {"action": "create", "step": "name"}
-        bot.send_message(m.chat.id, "📛 أدخل اسمك:")
+@bot.message_handler(func=lambda m: m.text == "🆕 إنشاء حساب")
+def create_account(message):
+    bot.send_message(message.chat.id, "📛 أرسل اسمك:")
+    bot.register_next_step_handler(message, process_name)
+
+def process_name(message):
+    name = message.text
+    bot.send_message(message.chat.id, "📧 أرسل بريدك الإلكتروني:")
+    bot.register_next_step_handler(message, lambda m: process_email(m, name))
+
+def process_email(message, name):
+    email = message.text
+    bot.send_message(message.chat.id, "🔑 أرسل كلمة المرور:")
+    bot.register_next_step_handler(message, lambda m: save_new_user(m, name, email))
+
+def save_new_user(message, name, email):
+    password = message.text
+    chat_id = str(message.chat.id)
+    users[chat_id] = {
+        "name": name,
+        "email": email,
+        "password": password,
+        "subscribed": False,
+        "accepted": False
+    }
+    save_users(users)
+    bot.send_message(message.chat.id, "✅ تم إنشاء الحساب.")
+    show_subscription_prompt(message)
+
+@bot.message_handler(func=lambda m: m.text == "🔐 تسجيل الدخول")
+def login(message):
+    bot.send_message(message.chat.id, "📧 أرسل بريدك الإلكتروني:")
+    bot.register_next_step_handler(message, process_login_email)
+
+def process_login_email(message):
+    email = message.text
+    bot.send_message(message.chat.id, "🔑 أرسل كلمة المرور:")
+    bot.register_next_step_handler(message, lambda m: check_credentials(m, email))
+
+def check_credentials(message, email):
+    password = message.text
+    chat_id = str(message.chat.id)
+    for uid, data in users.items():
+        if data["email"] == email and data["password"] == password:
+            SESSIONS[chat_id] = True
+            bot.send_message(message.chat.id, "✅ تم تسجيل الدخول.")
+            if not data["subscribed"]:
+                show_subscription_prompt(message)
+            elif not data["accepted"]:
+                bot.send_message(message.chat.id, "📩 بانتظار موافقة المطور.")
+            else:
+                bot.send_message(message.chat.id, "🎉 أنت مشترك! التوصيات ستصلك تلقائيًا.")
+            return
+    bot.send_message(message.chat.id, "❌ بيانات الدخول غير صحيحة.")
+
+def show_subscription_prompt(message):
+    markup = types.ReplyKeyboardRemove()
+    bot.send_message(message.chat.id, f"{config['subscription_message']}\n💰 السعر: {config['subscription_price']}$\n🏦 المحفظة: {config['wallet_address']}", reply_markup=markup)
+    bot.send_message(message.chat.id, "📸 أرسل صورة إثبات الدفع:")
+    bot.register_next_step_handler(message, handle_proof)
+
+def handle_proof(message):
+    chat_id = str(message.chat.id)
+    if chat_id in users:
+        users[chat_id]["subscribed"] = True
+        users[chat_id]["proof_message_id"] = message.message_id
+        users[chat_id]["proof_chat_id"] = message.chat.id
+        save_users(users)
+        bot.send_message(message.chat.id, "📩 تم استلام الإثبات. بانتظار موافقة المطور.")
+        bot.send_message(ADMIN_ID, f"📥 طلب جديد من {users[chat_id]['name']} (ID: {chat_id})")
+        if message.photo:
+            bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
+
+@bot.message_handler(commands=['قبول'])
+def accept_by_command(message):
+    if message.chat.id != ADMIN_ID:
+        return
+    parts = message.text.split()
+    if len(parts) != 2:
+        bot.send_message(message.chat.id, "❌ الصيغة: /قبول chat_id")
+        return
+    uid = parts[1]
+    if uid in users:
+        users[uid]["accepted"] = True
+        save_users(users)
+        bot.send_message(uid, "✅ تم قبول اشتراكك!")
+        bot.send_message(message.chat.id, f"✅ تم قبول المستخدم {uid}.")
     else:
-        user_states[m.chat.id] = {"action": "login", "step": "email"}
-        bot.send_message(m.chat.id, "📧 أدخل بريدك الإلكتروني:")
+        bot.send_message(message.chat.id, "❌ المستخدم غير موجود.")
 
-@bot.message_handler(func=lambda m: m.chat.id in user_states)
-def handle_steps(m):
-    state = user_states[m.chat.id]
-    users = load_json(USERS_FILE)
-    sessions = load_json(SESSIONS_FILE)
+@bot.message_handler(func=lambda m: m.text == "🔐 ALMYD8710")
+def developer_login(message):
+    bot.send_message(message.chat.id, "🔑 أدخل كلمة السر:")
+    bot.register_next_step_handler(message, verify_admin_password)
 
-    if state["action"] == "create":
-        if state["step"] == "name":
-            state["name"] = m.text
-            state["step"] = "email"
-            bot.send_message(m.chat.id, "📧 أدخل بريدك الإلكتروني:")
-        elif state["step"] == "email":
-            if m.text in users:
-                bot.send_message(m.chat.id, "❌ هذا البريد مسجل مسبقًا.")
-                user_states.pop(m.chat.id)
-                return
-            state["email"] = m.text
-            state["step"] = "password"
-            bot.send_message(m.chat.id, "🔐 أدخل كلمة مرور:")
-        elif state["step"] == "password":
-            users[state["email"]] = {
-                "name": state["name"],
-                "password": m.text
-            }
-            save_json(USERS_FILE, users)
-            sessions[str(m.chat.id)] = state["email"]
-            save_json(SESSIONS_FILE, sessions)
-            bot.send_message(m.chat.id, f"✅ تم إنشاء الحساب بنجاح، {state['name']}!")
-            user_states.pop(m.chat.id)
+def verify_admin_password(message):
+    if message.text == ADMIN_PASSWORD:
+        show_admin_panel(message)
+    else:
+        bot.send_message(message.chat.id, "❌ كلمة السر غير صحيحة.")
 
-    elif state["action"] == "login":
-        if state["step"] == "email":
-            state["email"] = m.text
-            state["step"] = "password"
-            bot.send_message(m.chat.id, "🔐 أدخل كلمة المرور:")
-        elif state["step"] == "password":
-            email = state["email"]
-            if email not in users or users[email]["password"] != m.text:
-                bot.send_message(m.chat.id, "❌ بيانات الدخول غير صحيحة.")
-                user_states.pop(m.chat.id)
-                return
-            sessions[str(m.chat.id)] = email
-            save_json(SESSIONS_FILE, sessions)
-            bot.send_message(m.chat.id, f"✅ تسجيل دخول ناجح، مرحباً {users[email]['name']}!")
-            user_states.pop(m.chat.id)
+def show_admin_panel(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("📝 تغيير الرسالة الترحيبية", "💳 تغيير رسالة الاشتراك")
+    markup.add("💰 تغيير السعر", "🏦 تغيير المحفظة")
+    markup.add("🚪 خروج")
+    bot.send_message(message.chat.id, "🛠️ لوحة التحكم:", reply_markup=markup)
 
-# --- تشغيل البوت ---
-print("✅ البوت يعمل الآن...")
+@bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text == "📝 تغيير الرسالة الترحيبية")
+def change_welcome_msg(message):
+    bot.send_message(message.chat.id, "✍️ أرسل الرسالة الجديدة:")
+    bot.register_next_step_handler(message, save_welcome_msg)
+
+def save_welcome_msg(message):
+    config["welcome_message"] = message.text
+    save_config(config)
+    bot.send_message(message.chat.id, "✅ تم التحديث.")
+
+@bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text == "💳 تغيير رسالة الاشتراك")
+def change_sub_msg(message):
+    bot.send_message(message.chat.id, "✍️ أرسل رسالة الاشتراك:")
+    bot.register_next_step_handler(message, save_sub_msg)
+
+def save_sub_msg(message):
+    config["subscription_message"] = message.text
+    save_config(config)
+    bot.send_message(message.chat.id, "✅ تم التحديث.")
+
+@bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text == "💰 تغيير السعر")
+def change_price(message):
+    bot.send_message(message.chat.id, "💲 السعر الجديد:")
+    bot.register_next_step_handler(message, save_price)
+
+def save_price(message):
+    config["subscription_price"] = message.text
+    save_config(config)
+    bot.send_message(message.chat.id, "✅ تم تحديث السعر.")
+
+@bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text == "🏦 تغيير المحفظة")
+def change_wallet(message):
+    bot.send_message(message.chat.id, "🏦 المحفظة الجديدة:")
+    bot.register_next_step_handler(message, save_wallet)
+
+def save_wallet(message):
+    config["wallet_address"] = message.text
+    save_config(config)
+    bot.send_message(message.chat.id, "✅ تم تحديث المحفظة.")
+
+@bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text == "🚪 خروج")
+def exit_admin(message):
+    bot.send_message(message.chat.id, "✅ تم الخروج.", reply_markup=types.ReplyKeyboardRemove())
+
+@bot.message_handler(func=lambda m: m.chat.id == ADMIN_ID and m.text == "📥 طلبات الاشتراك")
+def show_pending_requests(message):
+    pending = [uid for uid, data in users.items() if data.get("subscribed") and not data.get("accepted")]
+    if not pending:
+        bot.send_message(message.chat.id, "لا يوجد طلبات اشتراك.")
+        return
+    markup = types.InlineKeyboardMarkup()
+    for uid in pending:
+        name = users[uid].get("name", uid)
+        markup.add(types.InlineKeyboardButton(text=name, callback_data=f"review_{uid}"))
+    bot.send_message(message.chat.id, "📋 الطلبات:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("review_"))
+def review_request(call):
+    uid = call.data.split("_")[1]
+    user = users.get(uid)
+    if not user:
+        return
+    chat_id = user.get("proof_chat_id")
+    msg_id = user.get("proof_message_id")
+    if chat_id and msg_id:
+        try:
+            bot.copy_message(call.message.chat.id, chat_id, msg_id)
+        except:
+            bot.send_message(call.message.chat.id, "❌ لم أتمكن من جلب الإثبات.")
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("✅ قبول", callback_data=f"accept_{uid}"),
+        types.InlineKeyboardButton("❌ رفض", callback_data=f"reject_{uid}")
+    )
+    bot.send_message(call.message.chat.id, f"🔍 طلب: {user['name']} (ID: {uid})", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("accept_"))
+def accept_user_btn(call):
+    uid = call.data.split("_")[1]
+    if uid in users:
+        users[uid]["accepted"] = True
+        save_users(users)
+        bot.send_message(uid, "✅ تم قبول اشتراكك!")
+        bot.edit_message_text("✅ تم القبول.", call.message.chat.id, call.message.message_id)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("reject_"))
+def reject_user_btn(call):
+    uid = call.data.split("_")[1]
+    if uid in users:
+        users[uid]["subscribed"] = False
+        users[uid]["accepted"] = False
+        save_users(users)
+        bot.send_message(uid, "❌ تم رفض طلب الاشتراك.")
+        bot.edit_message_text("❌ تم الرفض.", call.message.chat.id, call.message.message_id)
+
+def send_recommendations():
+    while True:
+        for uid, data in users.items():
+            if data.get("accepted"):
+                try:
+                    bot.send_message(uid, "📊 توصية جديدة: ⬆️ شراء أو ⬇️ بيع")
+                except:
+                    continue
+        time.sleep(60)
+
+threading.Thread(target=send_recommendations).start()
+
 bot.infinity_polling()
